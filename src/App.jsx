@@ -63,6 +63,34 @@ function getOccurance(duration_array) {
   return out
 }
 
+let _earlyThresholdLine = null;
+let _lateThresholdLine = null;
+
+const thresholdPlugin = {
+  id: 'thresholdLines',
+  afterDraw(chart) {
+    const { ctx, chartArea, scales } = chart;
+    const xScale = scales.x;
+    const lines = [
+      { value: _earlyThresholdLine, color: '#a5c5ae' },
+      { value: _lateThresholdLine, color: '#8cb5a8' },
+    ];
+    lines.forEach(({ value, color }) => {
+      if (value === null) return;
+      const x = xScale.getPixelForValue(value / 5);
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.setLineDash([5, 3]);
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
+};
+
 const MyChart = (props) => {
   const labels = Array.from({ length: 201 / 5 + 1 }, (_, i) => i * 5);
   const [chartData, setChartData] = createSignal({
@@ -84,11 +112,13 @@ const MyChart = (props) => {
 
 
   onMount(() => {
-    Chart.register(...registerables)
+    Chart.register(...registerables, thresholdPlugin)
   })
 
   createEffect(() => {
-    const { earlyStrafes, lateStrafes, perfectStrafes } = props;
+    const { earlyStrafes, lateStrafes, perfectStrafes, earlyAlertEnabled, lateAlertEnabled, earlyThreshold, lateThreshold } = props;
+    _earlyThresholdLine = earlyAlertEnabled ? earlyThreshold : null;
+    _lateThresholdLine = lateAlertEnabled ? lateThreshold : null;
     setChartData({
       labels: labels,
       datasets: [
@@ -210,7 +240,7 @@ function Stats(props) {
   )
 }
 
-function WASD() {
+function WASD(props) {
   const [aPressed, setAPressed] = createSignal(false);
   const [dPressed, setDPressed] = createSignal(false);
 
@@ -312,8 +342,36 @@ function WASD() {
           </div>
         </div>
       </div>
-      <div className="basis-0 flex-grow bg-red-200 min-w-[200px] ">
-
+      <div className="basis-0 flex-grow min-w-[200px] flex flex-col justify-center px-3 gap-2 text-sm">
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="early-alert" checked={props.earlyAlertEnabled}
+            onChange={e => props.setEarlyAlertEnabled(e.target.checked)} />
+          <label for="early-alert" className="font-semibold text-secondary w-8 cursor-pointer select-none">Early</label>
+          <input type="range" min="0" max="200" step="5" value={props.earlyThreshold}
+            onInput={e => props.setEarlyThreshold(Number(e.target.value))}
+            disabled={!props.earlyAlertEnabled}
+            className="flex-grow disabled:opacity-40" />
+          <span className="w-12 text-right tabular-nums">{props.earlyThreshold}ms</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="late-alert" checked={props.lateAlertEnabled}
+            onChange={e => props.setLateAlertEnabled(e.target.checked)} />
+          <label for="late-alert" className="font-semibold text-accent w-8 cursor-pointer select-none">Late</label>
+          <input type="range" min="0" max="200" step="5" value={props.lateThreshold}
+            onInput={e => props.setLateThreshold(Number(e.target.value))}
+            disabled={!props.lateAlertEnabled}
+            className="flex-grow disabled:opacity-40" />
+          <span className="w-12 text-right tabular-nums">{props.lateThreshold}ms</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="wasd-button text-dark bg-bright border border-dark/20 text-xs cursor-pointer text-center">
+            {props.customSound ? props.customSound.name.slice(0, 12) + (props.customSound.name.length > 12 ? '…' : '') : 'Browse…'}
+            <input type="file" accept=".wav,.mp3" className="hidden" onInput={props.onSoundFile} />
+          </label>
+          {props.customSound &&
+            <button onClick={props.onClearSound} className="text-xs text-dark/60 hover:text-dark select-none">✕ Default</button>
+          }
+        </div>
       </div>
 
 
@@ -321,11 +379,59 @@ function WASD() {
   )
 }
 
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+
+function playTone(frequency) {
+  const ctx = getAudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type = 'sine';
+  osc.frequency.value = frequency;
+  gain.gain.setValueAtTime(0.12, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime + 0.35);
+}
+
+function playCustomSound(url) {
+  new Audio(url).play().catch(() => {});
+}
+
 function App() {
   const [totalStrafes, setTotalStrafes] = createSignal([]);
   const [earlyStrafes, setEarlyStrafes] = createSignal([]);
   const [lateStrafes, setLateStrafes] = createSignal([]);
   const [perfectStrafes, setPerfectStrafes] = createSignal([]);
+
+  const [earlyAlertEnabled, setEarlyAlertEnabled] = createSignal(false);
+  const [lateAlertEnabled, setLateAlertEnabled] = createSignal(false);
+  const [earlyThreshold, setEarlyThreshold] = createSignal(50);
+  const [lateThreshold, setLateThreshold] = createSignal(50);
+  const [customSound, setCustomSound] = createSignal(null);
+  let _customSoundObjectUrl = null;
+
+  function handleSoundFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (_customSoundObjectUrl) URL.revokeObjectURL(_customSoundObjectUrl);
+    _customSoundObjectUrl = URL.createObjectURL(file);
+    setCustomSound({ url: _customSoundObjectUrl, name: file.name });
+  }
+
+  function clearCustomSound() {
+    if (_customSoundObjectUrl) {
+      URL.revokeObjectURL(_customSoundObjectUrl);
+      _customSoundObjectUrl = null;
+    }
+    setCustomSound(null);
+  }
 
   function resetStrafes() {
     setEarlyStrafes([]);
@@ -343,9 +449,15 @@ function App() {
         switch (strafe.type) {
           case "Early":
             setEarlyStrafes(a => [strafe.duration, ...a])
+            if (earlyAlertEnabled() && strafe.duration / 1000 > earlyThreshold()) {
+              customSound() ? playCustomSound(customSound().url) : playTone(587);
+            }
             break;
           case "Late":
             setLateStrafes(a => [strafe.duration, ...a])
+            if (lateAlertEnabled() && strafe.duration / 1000 > lateThreshold()) {
+              customSound() ? playCustomSound(customSound().url) : playTone(440);
+            }
             break;
           case "Perfect":
             setPerfectStrafes(a => [strafe.duration, ...a])
@@ -386,13 +498,21 @@ function App() {
         </div>
         {/* B */}
         <div className="flex  flex-col m-4 justify-center rounded-xl w-[50%] ">
-          <MyChart earlyStrafes={earlyStrafes()} lateStrafes={lateStrafes()} perfectStrafes={perfectStrafes()} ></MyChart>
+          <MyChart earlyStrafes={earlyStrafes()} lateStrafes={lateStrafes()} perfectStrafes={perfectStrafes()}
+            earlyAlertEnabled={earlyAlertEnabled()} earlyThreshold={earlyThreshold()}
+            lateAlertEnabled={lateAlertEnabled()} lateThreshold={lateThreshold()} />
         </div>
       </div>
 
       {/* 3 */}
       <div className="h-32 mb-4 flex items-center justify-center">
-        <WASD></WASD>
+        <WASD
+          earlyAlertEnabled={earlyAlertEnabled()} setEarlyAlertEnabled={setEarlyAlertEnabled}
+          earlyThreshold={earlyThreshold()} setEarlyThreshold={setEarlyThreshold}
+          lateAlertEnabled={lateAlertEnabled()} setLateAlertEnabled={setLateAlertEnabled}
+          lateThreshold={lateThreshold()} setLateThreshold={setLateThreshold}
+          customSound={customSound()} onSoundFile={handleSoundFile} onClearSound={clearCustomSound}
+        />
       </div>
       {/* 4 */}
       <div className="flex  flex-row p-2 bg-accent/25 h-20 overflow-clip  w-full">
