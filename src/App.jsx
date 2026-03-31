@@ -342,7 +342,7 @@ function WASD(props) {
           </div>
         </div>
       </div>
-      <div className="basis-0 flex-grow min-w-[200px] flex flex-col justify-center px-3 gap-2 text-sm">
+      <div className="basis-0 flex-grow min-w-[200px] flex flex-col justify-center px-3 gap-1.5 text-sm">
         <div className="flex items-center gap-2">
           <input type="checkbox" id="early-alert" checked={props.earlyAlertEnabled}
             onChange={e => props.setEarlyAlertEnabled(e.target.checked)} />
@@ -364,12 +364,23 @@ function WASD(props) {
           <span className="w-12 text-right tabular-nums">{props.lateThreshold}ms</span>
         </div>
         <div className="flex items-center gap-2">
-          <label className="wasd-button text-dark bg-bright border border-dark/20 text-xs cursor-pointer text-center">
-            {props.customSound ? props.customSound.name.slice(0, 12) + (props.customSound.name.length > 12 ? '…' : '') : 'Browse…'}
-            <input type="file" accept=".wav,.mp3" className="hidden" onInput={props.onSoundFile} />
+          <span className="select-none w-8 text-center">Vol</span>
+          <input type="range" min="0" max="100" step="5" value={props.volume}
+            onInput={e => props.setVolume(Number(e.target.value))}
+            className="flex-grow" />
+          <span className="w-12 text-right tabular-nums">{props.volume}%</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="shrink-0 px-2 py-0.5 rounded-md shadow-md bg-bright border border-dark/20 text-xs cursor-pointer select-none hover:scale-105">
+            Browse…
+            <input type="file" accept=".wav,.mp3,.ogg" className="hidden" onInput={props.onSoundFile} />
           </label>
-          {props.customSound &&
-            <button onClick={props.onClearSound} className="text-xs text-dark/60 hover:text-dark select-none">✕ Default</button>
+          {props.customSound
+            ? <>
+                <span className="text-xs truncate flex-grow" title={props.customSound.name}>{props.customSound.name}</span>
+                <button onClick={props.onClearSound} className="shrink-0 text-xs text-dark/60 hover:text-dark select-none">✕</button>
+              </>
+            : <span className="text-xs text-dark/50 italic">Default tone</span>
           }
         </div>
       </div>
@@ -386,7 +397,7 @@ function getAudioCtx() {
   return _audioCtx;
 }
 
-function playTone(frequency) {
+function playTone(frequency, volume) {
   const ctx = getAudioCtx();
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -394,14 +405,17 @@ function playTone(frequency) {
   gain.connect(ctx.destination);
   osc.type = 'sine';
   osc.frequency.value = frequency;
-  gain.gain.setValueAtTime(0.12, ctx.currentTime);
+  const peak = 0.12 * volume;
+  gain.gain.setValueAtTime(peak, ctx.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 0.35);
 }
 
-function playCustomSound(url) {
-  new Audio(url).play().catch(() => {});
+function playCustomSound(url, volume) {
+  const audio = new Audio(url);
+  audio.volume = volume;
+  audio.play().catch((e) => console.warn("Sound playback failed:", e));
 }
 
 function App() {
@@ -415,6 +429,7 @@ function App() {
   const [earlyThreshold, setEarlyThreshold] = createSignal(50);
   const [lateThreshold, setLateThreshold] = createSignal(50);
   const [customSound, setCustomSound] = createSignal(null);
+  const [volume, setVolume] = createSignal(50);
   let _customSoundObjectUrl = null;
 
   function handleSoundFile(e) {
@@ -450,13 +465,15 @@ function App() {
           case "Early":
             setEarlyStrafes(a => [strafe.duration, ...a])
             if (earlyAlertEnabled() && strafe.duration / 1000 > earlyThreshold()) {
-              customSound() ? playCustomSound(customSound().url) : playTone(587);
+              const v = volume() / 100;
+              customSound() ? playCustomSound(customSound().url, v) : playTone(587, v);
             }
             break;
           case "Late":
             setLateStrafes(a => [strafe.duration, ...a])
             if (lateAlertEnabled() && strafe.duration / 1000 > lateThreshold()) {
-              customSound() ? playCustomSound(customSound().url) : playTone(440);
+              const v = volume() / 100;
+              customSound() ? playCustomSound(customSound().url, v) : playTone(440, v);
             }
             break;
           case "Perfect":
@@ -505,13 +522,14 @@ function App() {
       </div>
 
       {/* 3 */}
-      <div className="h-32 mb-4 flex items-center justify-center">
+      <div className="h-36 mb-4 flex items-center justify-center">
         <WASD
           earlyAlertEnabled={earlyAlertEnabled()} setEarlyAlertEnabled={setEarlyAlertEnabled}
           earlyThreshold={earlyThreshold()} setEarlyThreshold={setEarlyThreshold}
           lateAlertEnabled={lateAlertEnabled()} setLateAlertEnabled={setLateAlertEnabled}
           lateThreshold={lateThreshold()} setLateThreshold={setLateThreshold}
           customSound={customSound()} onSoundFile={handleSoundFile} onClearSound={clearCustomSound}
+          volume={volume()} setVolume={setVolume}
         />
       </div>
       {/* 4 */}
