@@ -79,6 +79,7 @@ fn main() {
                 let mut right_released_time: Option<SystemTime> = None;
                 let mut left_released_time: Option<SystemTime> = None;
                 let is_azerty = is_azerty_layout();
+                let mut post_overstrafe = false;
                 loop {
                     // Tickrate
                     sleep(Duration::from_millis(1));
@@ -88,7 +89,11 @@ fn main() {
                         // D released
                         right_pressed = false;
                         let _ = handle.emit_all("d-released", ());
-                        right_released_time = Some(SystemTime::now());
+                        if post_overstrafe {
+                            post_overstrafe = false;
+                        } else {
+                            right_released_time = Some(SystemTime::now());
+                        }
                     }
                     if left_pressed
                         && (is_azerty || !AKey.is_pressed())
@@ -98,7 +103,11 @@ fn main() {
                         // A released
                         left_pressed = false;
                         let _ = handle.emit_all("a-released", ());
-                        left_released_time = Some(SystemTime::now());
+                        if post_overstrafe {
+                            post_overstrafe = false;
+                        } else {
+                            left_released_time = Some(SystemTime::now());
+                        }
                     }
 
                     if ((!is_azerty && AKey.is_pressed())
@@ -159,7 +168,10 @@ fn main() {
                                             elapsed,
                                             &mut both_pressed_time,
                                             handle.clone(),
-                                        )
+                                        );
+                                        left_released_time = None;
+                                        right_released_time = None;
+                                        post_overstrafe = true;
                                     }
                                     Err(e) => {
                                         println!("Error: {e:?}");
