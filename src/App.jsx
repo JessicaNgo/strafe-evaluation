@@ -365,7 +365,7 @@ function WASD(props) {
         </div>
         <div className="flex items-center gap-2">
           <span className="select-none w-8 text-center">Vol</span>
-          <input type="range" min="0" max="100" step="5" value={props.volume}
+          <input type="range" min="0" max="200" step="5" value={props.volume}
             onInput={e => props.setVolume(Number(e.target.value))}
             className="flex-grow" />
           <span className="w-12 text-right tabular-nums">{props.volume}%</span>
@@ -413,8 +413,14 @@ function playTone(frequency, volume) {
 }
 
 function playCustomSound(url, volume) {
+  const ctx = getAudioCtx();
   const audio = new Audio(url);
-  audio.volume = volume;
+  audio.crossOrigin = "anonymous";
+  const source = ctx.createMediaElementSource(audio);
+  const gain = ctx.createGain();
+  gain.gain.value = volume;
+  source.connect(gain);
+  gain.connect(ctx.destination);
   audio.play().catch((e) => console.warn("Sound playback failed:", e));
 }
 
